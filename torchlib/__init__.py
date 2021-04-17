@@ -12,7 +12,8 @@ from sklearn.metrics import accuracy_score
 
 # Training function
 def train(model: nn.Module, optimizer: Optimizer, loss: nn.Module, train_loader: DataLoader,
-          valid_loader: DataLoader = None, epochs: int = 100, gpu: int = None, scheduler=None) -> tuple:
+          valid_loader: DataLoader = None, epochs: int = 100, gpu: int = None,
+          score: list = None, scheduler=None, make_sigmoid=False, make_softmax=False) -> tuple:
     """
     :param model: torch ML model
     :param optimizer: torch optimizer algorithm
@@ -30,8 +31,6 @@ def train(model: nn.Module, optimizer: Optimizer, loss: nn.Module, train_loader:
 
     epochs_train_loss = []
     epochs_valid_loss = []
-    epochs_train_acc = []
-    epochs_valid_acc = []
     for ep in range(epochs):
         model.training = True
 
@@ -61,23 +60,27 @@ def train(model: nn.Module, optimizer: Optimizer, loss: nn.Module, train_loader:
                 torch.cuda.empty_cache()
 
             all_losses.append(err)
-            labels = (F.sigmoid(predictions) >= 0.5) * 1
+
+            if make_sigmoid:
+                labels = (F.sigmoid(predictions) >= 0.5) * 1
+            elif make_softmax:
+                labels = (F.softmax(predictions) >= 0.5) * 1
+            else:
+                labels = predictions
+
             all_predictions.append(labels)
             all_targets.append(targets)
-            accuracy_batch = accuracy_score(targets, labels)
 
             print(
-                f'\rBatch : {i + 1} / {len(train_loader)} - Accuracy : {accuracy_batch * 100:.2f}% - Loss : {err:.2e}',
+                f'\rBatch : {i + 1} / {len(train_loader)} - Loss : {err:.2e}',
                 end='')
 
-        all_predictions = torch.hstack(all_predictions)
-        all_targets = torch.hstack(all_targets)
+        all_predictions = torch.vstack(all_predictions)
+        all_targets = torch.vstack(all_targets)
 
-        train_loss = np.hstack(all_losses).mean()
-        train_acc = accuracy_score(all_targets, all_predictions)
+        train_loss = np.vstack(all_losses).mean()
 
         # Historic
-        epochs_train_acc.append(train_acc)
         epochs_train_loss.append(train_loss)
 
         if scheduler is not None:
@@ -85,21 +88,20 @@ def train(model: nn.Module, optimizer: Optimizer, loss: nn.Module, train_loader:
 
         # Validation step
         if valid_loader is not None:
-            valid_loss, valid_acc = valid(model, loss, valid_loader, gpu)
+            valid_loss = valid(model, loss, valid_loader, gpu)
             # Historic
-            epochs_valid_acc.append(valid_acc)
             epochs_valid_loss.append(valid_loss)
             print(
-                f'\rEpoch : {ep + 1} - Train Accuracy : {train_acc * 100:.2f}% - Train Loss : {train_loss:.2e} - '
-                f'Valid Accuracy : {valid_acc * 100:.2f}% - Valid Loss : {valid_loss:.2e}')
+                f'\rEpoch : {ep + 1} - Train Loss : {train_loss:.2e} - '
+                f'- Valid Loss : {valid_loss:.2e}')
         else:
             # Display epoch information
-            print(f'\rEpoch : {ep + 1} - Train Accuracy : {train_acc * 100:.2f}%  - Train Loss : {train_loss:.2e}')
+            print(f'\rEpoch : {ep + 1} - Train Loss : {train_loss:.2e}')
 
     if valid_loader is not None:
-        return epochs_train_acc, epochs_train_loss, epochs_valid_acc, epochs_valid_loss
+        return epochs_train_loss, epochs_valid_loss
 
-    return epochs_train_acc, epochs_train_loss
+    return epochs_train_loss
 
 
 # Validation function
@@ -142,9 +144,8 @@ def valid(model: nn.Module, loss: nn.Module, valid_loader: DataLoader, gpu) -> t
         all_losses = torch.hstack(all_losses)
         all_predictions = torch.hstack(all_predictions)
         all_targets = torch.hstack(all_targets)
-        valid_acc = accuracy_score(all_targets, all_predictions)
 
-        return all_losses.mean(), valid_acc
+        return all_losses.mean()
 
 
 # Test
@@ -187,9 +188,8 @@ def test(model: nn.Module, loss: nn.Module, test_loader: DataLoader, gpu: int = 
         all_losses = torch.vstack(all_losses)
         all_predictions = torch.hstack(all_predictions)
         all_targets = torch.hstack(all_targets)
-        test_acc = accuracy_score(all_targets, all_predictions)
 
-        return all_losses.mean(), test_acc
+        return all_losses.mean()
 
 
 # Make predictions
